@@ -6,7 +6,8 @@ export function toHex(bytes: ArrayBuffer | Uint8Array): string {
   return [...(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function fromHex(hex: string): Uint8Array {
+function fromHex(raw: string): Uint8Array {
+  const hex = raw.trim(); // secrets set through a shell pipe can carry a trailing newline
   if (!/^[0-9a-fA-F]{64}$/.test(hex)) throw new Error("RAW_ENCRYPTION_KEY must be 64 hex characters (32 bytes).");
   return Uint8Array.from(hex.match(/../g)!.map((pair) => parseInt(pair, 16)));
 }

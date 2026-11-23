@@ -47,3 +47,12 @@ describe("Coachchalk access", () => {
     expect(() => assertSelectOnly("SELECT 1; DROP TABLE lessons")).toThrow();
   });
 });
+
+import { decryptBytes, encryptBytes } from "../src/lib/crypto";
+describe("raw payload encryption", () => {
+  it("round-trips and tolerates a trailing newline on the key", async () => {
+    const key = "ab".repeat(32);
+    const sealed = await encryptBytes(new TextEncoder().encode("{}"), `${key}\r\n`);
+    expect(new TextDecoder().decode(await decryptBytes(sealed, key))).toBe("{}");
+  });
+});

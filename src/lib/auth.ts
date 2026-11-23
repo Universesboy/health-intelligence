@@ -14,7 +14,8 @@ export async function requireAccess(c: Context<AppEnv>, next: Next) {
     return next();
   }
   const token = c.req.header("cf-access-jwt-assertion");
-  const { CF_ACCESS_TEAM_DOMAIN: team, CF_ACCESS_AUD: aud } = c.env;
+  const team = c.env.CF_ACCESS_TEAM_DOMAIN?.trim();
+  const aud = c.env.CF_ACCESS_AUD?.trim();
   if (!token || !team || !aud) return c.text("Unauthorized", 401);
   const identity = await verifyAccessJwt(token, team, aud);
   if (!identity) return c.text("Unauthorized", 401);
