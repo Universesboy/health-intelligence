@@ -1,0 +1,6 @@
+# Copy to .dev.vars for `wrangler dev`. Never commit .dev.vars.
+AUTH_MODE=dev-insecure
+RAW_ENCRYPTION_KEY=<64 hex chars: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))">
+COACHCHALK_WORKSPACE_ID=
+CF_ACCESS_TEAM_DOMAIN=
+CF_ACCESS_AUD=

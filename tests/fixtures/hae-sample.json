@@ -1,0 +1,37 @@
+{
+  "data": {
+    "metrics": [
+      { "name": "step_count", "units": "count", "data": [
+        { "qty": 820, "date": "2026-11-20 08:00:00 -0700", "source": "Colin's iPhone" },
+        { "qty": 1310, "date": "2026-11-20 09:00:00 -0700", "source": "Colin's iPhone" },
+        { "qty": 400, "date": "2026-11-20 23:00:00 -0700", "source": "Colin's iPhone" },
+        { "qty": "bad", "date": "2026-11-20 10:00:00 -0700", "source": "Colin's iPhone" }
+      ]},
+      { "name": "walking_running_distance", "units": "mi", "data": [
+        { "qty": 1, "date": "2026-11-20 08:00:00 -0700", "source": "Colin's iPhone" }
+      ]},
+      { "name": "weight_body_mass", "units": "lb", "data": [
+        { "qty": 165, "date": "2026-11-20 07:10:00 -0700", "source": "Health" }
+      ]},
+      { "name": "heart_rate", "units": "count/min", "data": [
+        { "Min": 52, "Avg": 61, "Max": 75, "date": "2026-11-20 03:00:00 -0700", "source": "Apple Watch" }
+      ]},
+      { "name": "blood_pressure", "units": "mmHg", "data": [
+        { "systolic": 118, "diastolic": 76, "date": "2026-11-20 07:15:00 -0700", "source": "Omron" }
+      ]},
+      { "name": "sleep_analysis", "units": "hr", "data": [
+        { "date": "2026-11-20 00:00:00 -0700", "totalSleep": 6.75, "asleep": 0, "core": 3.9, "deep": 0.9, "rem": 1.95,
+          "sleepStart": "2026-11-19 23:40:00 -0700", "sleepEnd": "2026-11-20 06:55:00 -0700", "inBed": 7.4,
+          "inBedStart": "2026-11-19 23:30:00 -0700", "inBedEnd": "2026-11-20 07:00:00 -0700", "awake": 0.5, "source": "Apple Watch" }
+      ]},
+      { "name": "headphone_audio_exposure", "units": "dBASPL", "data": [ { "qty": 70, "date": "2026-11-20 08:00:00 -0700" } ] },
+      { "name": "body_fat_percentage", "units": "%", "data": [ { "qty": 0.182, "date": "2026-11-20 07:10:00 -0700", "source": "Scale" } ] }
+    ],
+    "workouts": [
+      { "id": "w-1", "name": "Badminton", "start": "2026-11-20 18:00:00 -0700", "end": "2026-11-20 19:30:00 -0700", "duration": 5400,
+        "activeEnergyBurned": { "qty": 610, "units": "kcal" }, "heartRate": { "min": { "qty": 90 }, "avg": { "qty": 138 }, "max": { "qty": 176 } },
+        "source": { "name": "Apple Watch", "identifier": "com.apple.health" } }
+    ],
+    "stateOfMind": [ { "id": "x" } ]
+  }
+}
