@@ -1,6 +1,6 @@
 // Three layers, as in docs/ARCHITECTURE.md:
 //   raw     -> ingest_batches (the encrypted original payload lives in R2, never in D1)
-//   core    -> observations, sleep_sessions, workouts, coaching_sessions, daily_checkins
+//   core    -> observations, sleep_sessions, workouts, work_daily, daily_checkins
 //   derived -> daily_metrics, baselines, daily_load (safe to delete and recompute)
 // All instants are stored as UTC ISO-8601 strings. `local_date` is the America/Vancouver
 // calendar day the record belongs to (sleep belongs to the day you woke up).
@@ -100,7 +100,7 @@ export const workouts = sqliteTable("workouts", {
   updatedAt: text("updated_at").notNull(),
 }, (t) => [uniqueIndex("idx_workouts_dedup").on(t.dedupKey), index("idx_workouts_date").on(t.localDate)]);
 
-/** Teaching sessions, imported read-only from Coachchalk completed lessons. */
+/** Earlier per-lesson copy from Coachchalk. No longer written (see work_daily); kept so nothing is lost. */
 export const coachingSessions = sqliteTable("coaching_sessions", {
   id: text("id").primaryKey(),
   coachchalkLessonId: text("coachchalk_lesson_id").notNull(),
@@ -110,6 +110,20 @@ export const coachingSessions = sqliteTable("coaching_sessions", {
   lessonType: text("lesson_type").notNull(),
   importedAt: text("imported_at").notNull(),
 }, (t) => [uniqueIndex("idx_coaching_lesson").on(t.coachchalkLessonId), index("idx_coaching_date").on(t.localDate)]);
+
+/** Daily work summary from Coachchalk's Work Feed (contract v1). A day with no row had no recorded work. */
+export const workDaily = sqliteTable("work_daily", {
+  localDate: text("local_date").primaryKey(),
+  teachingMin: integer("teaching_min").notNull(),
+  coachingMin: integer("coaching_min").notNull(), // lesson planning, training plans, video review
+  adminMin: integer("admin_min").notNull(),
+  travelMin: integer("travel_min").notNull(),
+  totalMin: integer("total_min").notNull(), // overlapping blocks counted once
+  lessons: integer("lessons").notNull(),
+  longestTeachingBlockMin: integer("longest_teaching_block_min").notNull(),
+  schemaVersion: integer("schema_version").notNull(),
+  fetchedAt: text("fetched_at").notNull(),
+});
 
 /** The 20-second daily check-in. Every field is optional: missing stays missing. */
 export const dailyCheckins = sqliteTable("daily_checkins", {

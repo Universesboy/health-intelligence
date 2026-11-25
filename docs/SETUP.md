@@ -15,7 +15,9 @@ npx wrangler queues create health-ingest-dlq
 
 把 `d1 create` 打印的 `database_id` 填进 `wrangler.jsonc` 里 `DB` 那一项。
 
-`COACHCHALK_DB` 那一项填 Coachchalk 的数据库 ID（`coachos`，可在 Coachchalk 仓库的 `cloudflare/wrangler.migrations.jsonc` 或 `npx wrangler d1 list` 里找到）。本系统对它只执行 SELECT。
+工时数据来自 Coachchalk 的 Work Feed：`wrangler.jsonc` 里的 `COACHCHALK_WORK` 服务绑定指向 `coachos` Worker 的 `HealthWorkFeed` 入口。本系统不读 Coachchalk 的数据库。
+
+先部署 Coachchalk，再在 Coachchalk 的「工时」页打开「共享给 Coach Health」，最后部署本系统。`COACHCHALK_WORKSPACE_ID` 用 `wrangler secret put` 设置。没打开共享时，每小时的任务会跳过工时并保留已有数据，Coachchalk 会记录这次被拒绝的读取。
 
 ## 2. 建表
 

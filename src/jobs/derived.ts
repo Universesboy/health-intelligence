@@ -54,8 +54,13 @@ export async function recomputeDailyMetrics(db: D1Database, today: string, now: 
   }
   await db.prepare(
     `INSERT INTO daily_metrics (local_date, metric, value, unit, samples, computed_at)
-     SELECT local_date, 'coaching_minutes', SUM(duration_min), 'min', COUNT(*), ? FROM coaching_sessions
-     WHERE local_date >= ? GROUP BY local_date`,
+     SELECT local_date, 'coaching_minutes', teaching_min, 'min', lessons, ? FROM work_daily
+     WHERE local_date >= ? AND teaching_min > 0`,
+  ).bind(now, from).run();
+  await db.prepare(
+    `INSERT INTO daily_metrics (local_date, metric, value, unit, samples, computed_at)
+     SELECT local_date, 'work_total_minutes', total_min, 'min', 1, ? FROM work_daily
+     WHERE local_date >= ? AND total_min > 0`,
   ).bind(now, from).run();
   if (selfSleep.length) await db.batch(selfSleep);
 }
@@ -86,7 +91,7 @@ export async function recomputeBaselines(db: D1Database, today: string, now: str
 export async function recomputeLoad(db: D1Database, today: string, now: string, days = RECOMPUTE_DAYS) {
   const from = addDays(today, -(days + 28));
   const [coaching, workouts, checkins] = await Promise.all([
-    db.prepare("SELECT local_date, SUM(duration_min) AS minutes FROM coaching_sessions WHERE local_date >= ? GROUP BY local_date")
+    db.prepare("SELECT local_date, teaching_min AS minutes FROM work_daily WHERE local_date >= ?")
       .bind(from).all<{ local_date: string; minutes: number }>(),
     db.prepare("SELECT local_date, duration_s, rpe FROM workouts WHERE local_date >= ?")
       .bind(from).all<{ local_date: string; duration_s: number; rpe: number | null }>(),
