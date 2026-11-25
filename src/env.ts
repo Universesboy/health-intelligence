@@ -1,6 +1,9 @@
+import type { CoachchalkWorkFeed } from "./jobs/coachchalk";
+
 export interface Env {
   DB: D1Database;
-  COACHCHALK_DB?: D1Database;
+  /** Service binding to Coachchalk (`coachos`, entrypoint HealthWorkFeed). */
+  COACHCHALK_WORK?: CoachchalkWorkFeed;
   RAW: R2Bucket;
   INGEST_QUEUE: Queue<IngestMessage>;
   LOCAL_TIME_ZONE: string;

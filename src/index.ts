@@ -244,7 +244,7 @@ app.post("/import", async (c) => {
 <p>处理结果会显示在 <a href="/quality">数据质量</a> 页。</p>`));
 });
 
-const EXPORT_TABLES = ["sources", "observations", "sleep_sessions", "workouts", "coaching_sessions", "daily_checkins", "daily_metrics", "baselines", "daily_load", "ingest_batches"];
+const EXPORT_TABLES = ["sources", "observations", "sleep_sessions", "workouts", "work_daily", "coaching_sessions", "daily_checkins", "daily_metrics", "baselines", "daily_load", "ingest_batches"];
 
 app.get("/privacy", async (c) => {
   const sources = await getAll<{ id: string; name: string }>(c.env.DB, "SELECT id, name FROM sources ORDER BY created_at");

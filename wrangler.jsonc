@@ -16,14 +16,11 @@
       "database_name": "health",
       "database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "migrations"
-    },
-    {
-      // Coachchalk's database, used read-only (SELECT only, enforced in src/jobs/coachchalk.ts).
-      "binding": "COACHCHALK_DB",
-      "database_name": "coachos",
-      "database_id": "00000000-0000-0000-0000-000000000000"
     }
   ],
+  // Coachchalk work hours through its Work Feed (RPC). Health has no access to Coachchalk's database.
+  // The coach turns sharing on in Coachchalk (Work hours page); every read is logged there.
+  "services": [{ "binding": "COACHCHALK_WORK", "service": "coachos", "entrypoint": "HealthWorkFeed" }],
   "r2_buckets": [{ "binding": "RAW", "bucket_name": "health-raw" }],
   "queues": {
     "producers": [{ "binding": "INGEST_QUEUE", "queue": "health-ingest" }],

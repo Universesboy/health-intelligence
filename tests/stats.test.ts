@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { baseline, coachingLoad, coveredMean, hoursBetweenClock, mad, median, trainingLoad } from "../src/lib/stats";
-import { assertSelectOnly } from "../src/jobs/coachchalk";
 
 describe("baseline", () => {
   it("uses median and MAD", () => {
@@ -37,14 +36,6 @@ describe("self-reported sleep", () => {
     expect(hoursBetweenClock("23:30", "07:00")).toBe(7.5);
     expect(hoursBetweenClock("01:00", "08:15")).toBe(7.25);
     expect(hoursBetweenClock("25:00", "07:00")).toBeNull();
-  });
-});
-
-describe("Coachchalk access", () => {
-  it("allows only single SELECT statements", () => {
-    expect(() => assertSelectOnly("SELECT id FROM lessons")).not.toThrow();
-    expect(() => assertSelectOnly("DELETE FROM lessons")).toThrow();
-    expect(() => assertSelectOnly("SELECT 1; DROP TABLE lessons")).toThrow();
   });
 });
 
