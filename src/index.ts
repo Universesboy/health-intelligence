@@ -2,31 +2,16 @@ import { Hono } from "hono";
 import type { Env, IngestMessage } from "./env";
 import { requireAccess, requireSourceToken, type AppEnv } from "./lib/auth";
 import { newToken, sha256Hex } from "./lib/crypto";
-import { addDays, isIsoDate, localDate } from "./lib/time";
-import { BASELINE_MIN_DAYS } from "./lib/stats";
+import { localDate } from "./lib/time";
 import { acceptPayload, MAX_PAYLOAD_BYTES, processBatch } from "./ingest/process";
 import { importCoachchalk } from "./jobs/coachchalk";
-import { BASELINE_METRICS, recomputeAll } from "./jobs/derived";
+import { recomputeAll } from "./jobs/derived";
 import { esc, page } from "./web/html";
+import { icon } from "./web/icons";
+import { registerPages } from "./web/pages";
+export { RED_FLAGS } from "./web/pages";
 
 const app = new Hono<AppEnv>();
-
-export const RED_FLAGS: Record<string, string> = {
-  chest_pain: "胸痛或胸闷",
-  severe_breathlessness: "严重呼吸困难",
-  fainting: "晕厥或几乎晕倒",
-  palpitations_dizzy: "心悸并伴头晕",
-};
-const BODY_AREAS = ["肩", "肘", "腕", "颈", "下背", "髋", "大腿", "膝", "小腿", "跟腱/踝", "足底"];
-
-const METRIC_LABELS: Record<string, string> = {
-  steps: "步数", walking_running_distance: "步行+跑步距离", flights_climbed: "爬楼层数", active_energy: "活动能量",
-  basal_energy: "静息能量", resting_heart_rate: "静息心率", hrv_sdnn: "HRV（SDNN）", heart_rate: "心率",
-  body_mass: "体重", body_fat_pct: "体脂率", waist_circumference: "腰围", walking_speed: "步行速度",
-  walking_step_length: "步长", walking_asymmetry_pct: "步行不对称性", walking_double_support_pct: "双脚支撑时间",
-  water: "饮水", vo2_max: "VO2 max", bp_systolic: "收缩压", bp_diastolic: "舒张压",
-  sleep_hours_device: "睡眠（设备测量）", sleep_hours_self: "睡眠（自报）", coaching_minutes: "教学时长",
-};
 
 app.get("/healthz", (c) => c.text("ok"));
 
@@ -44,161 +29,26 @@ app.post("/ingest/hae", requireSourceToken, async (c) => {
 // ---------- Everything else requires Cloudflare Access ----------
 app.use("*", requireAccess);
 
-async function getOne<T>(db: D1Database, sql: string, ...params: unknown[]) {
-  return db.prepare(sql).bind(...params).first<T>();
-}
 async function getAll<T>(db: D1Database, sql: string, ...params: unknown[]) {
   return (await db.prepare(sql).bind(...params).all<T>()).results ?? [];
 }
-function fmt(value: number | null | undefined, digits = 0) {
-  return value === null || value === undefined ? "—" : value.toLocaleString("zh-CN", { maximumFractionDigits: digits });
-}
-function parseJsonArray(value: string | null | undefined): unknown[] {
-  try { const v = JSON.parse(value ?? "[]"); return Array.isArray(v) ? v : []; } catch { return []; }
-}
 
-app.get("/", async (c) => {
-  const tz = c.env.LOCAL_TIME_ZONE;
-  const today = localDate(new Date(), tz);
-  const db = c.env.DB;
-  const [checkin, metrics, load, baselines] = await Promise.all([
-    getOne<Record<string, string | number | null>>(db, "SELECT * FROM daily_checkins WHERE local_date = ?", today),
-    getAll<{ metric: string; value: number; unit: string; local_date: string }>(db,
-      "SELECT metric, value, unit, local_date FROM daily_metrics WHERE local_date IN (?, ?)", today, addDays(today, -1)),
-    getOne<Record<string, number | null>>(db, "SELECT * FROM daily_load WHERE local_date = ?", today),
-    getAll<{ metric: string; median: number | null; n: number }>(db,
-      "SELECT metric, median, n FROM baselines WHERE as_of_date = ? AND window_days = 28", today),
-  ]);
-  const redFlags = parseJsonArray(checkin?.red_flags as string).filter((f): f is string => typeof f === "string" && f in RED_FLAGS);
-  const emergency = redFlags.length ? `<div class="card danger"><strong>请立即拨打 911 或前往最近的急诊。</strong><br>
-    你今天报告了：${redFlags.map((f) => esc(RED_FLAGS[f])).join("、")}。这类症状需要马上由医疗人员评估，不要等待本系统的分析。</div>` : "";
-
-  const m = (metric: string, day = today) => metrics.find((r) => r.metric === metric && r.local_date === day);
-  const b = (metric: string) => baselines.find((r) => r.metric === metric);
-  const line = (label: string, metric: string, unit: string, kind: string, day = today) => {
-    const v = m(metric, day); const base = b(metric);
-    const baseText = !base || base.n < BASELINE_MIN_DAYS ? `<span class="muted">基线建立中（${base?.n ?? 0}/${BASELINE_MIN_DAYS} 天）</span>`
-      : `<span class="muted">28 天中位数 ${fmt(base.median, 1)}</span>`;
-    return `<tr><td>${label}</td><td>${v ? `${fmt(v.value, 1)} ${unit}` : '<span class="muted">缺失</span>'}</td><td class="muted">${kind}</td><td>${baseText}</td></tr>`;
-  };
-  const sel = (name: string, max: number, min = 1) => {
-    const current = checkin?.[name];
-    return `<select name="${name}"><option value="">未填</option>${Array.from({ length: max - min + 1 }, (_, i) => i + min)
-      .map((n) => `<option value="${n}"${current === n ? " selected" : ""}>${n}</option>`).join("")}</select>`;
-  };
-  const checks = (name: string, list: string[], selected: unknown[]) => list.map((a) =>
-    `<label><input type="checkbox" name="${name}" value="${esc(a)}"${selected.includes(a) ? " checked" : ""}>${esc(a)}</label>`).join("");
-  const pain = parseJsonArray(checkin?.pain_areas as string) as { area: string; severity: number }[];
-  const painSeverity = pain[0]?.severity ?? "";
-
-  return c.html(page("今天", `${emergency}
-<h1>今天 · ${today}</h1>
-<div class="card"><h2 style="margin-top:0">今日数据</h2><table>
-<tr><th>指标</th><th>数值</th><th>类型</th><th>个人基线</th></tr>
-${line("睡眠（设备）", "sleep_hours_device", "小时", "客观数据")}
-${line("睡眠（自报）", "sleep_hours_self", "小时", "自报")}
-${line("步数", "steps", "步", "客观数据")}
-${line("教学时长", "coaching_minutes", "分钟", "Coachchalk 记录")}
-${line("静息心率", "resting_heart_rate", "bpm", "客观数据")}
-${line("HRV（SDNN）", "hrv_sdnn", "ms", "客观数据")}
-${line("体重", "body_mass", "kg", "客观数据")}
-</table>
-<p class="muted">教学负荷 ${fmt(load?.coaching_load)} · 训练负荷 ${fmt(load?.training_load)} · 7 天均值 ${fmt(load?.acute_7)} · 28 天均值 ${fmt(load?.chronic_28)}
-<br>负荷为空表示缺少输入（例如没有填写教学强度或训练 RPE），系统不会用 0 或估计值代替。没有 Apple Watch 时心率与 HRV 会一直显示“缺失”。</p></div>
-
-<form class="card" method="post" action="/checkin"><h2 style="margin-top:0">20 秒签到</h2>
-<input type="hidden" name="local_date" value="${today}">
-<div class="row"><div><label>昨晚大概几点睡</label><input type="time" name="bedtime_local" value="${esc(checkin?.bedtime_local)}"></div>
-<div><label>今早几点起</label><input type="time" name="waketime_local" value="${esc(checkin?.waketime_local)}"></div></div>
-<div class="row"><div><label>睡眠质量（1 很差 – 5 很好）</label>${sel("sleep_quality", 5)}</div>
-<div><label>精力（1–5）</label>${sel("energy", 5)}</div></div>
-<div class="row"><div><label>今天教学强度（1 轻松 – 10 极累：喂球多/示范多/对抗多）</label>${sel("coaching_intensity", 10)}</div>
-<div><label>全天整体用力程度 RPE（0–10）</label>${sel("overall_rpe", 10, 0)}</div></div>
-<div class="row"><div><label>疲劳（1–5）</label>${sel("fatigue", 5)}</div>
-<div><label>最后一杯咖啡/茶时间</label><input type="time" name="caffeine_last_local" value="${esc(checkin?.caffeine_last_local)}"></div></div>
-<label>酸痛部位</label><div class="chips">${checks("soreness", BODY_AREAS, parseJsonArray(checkin?.soreness_areas as string))}</div>
-<label>疼痛部位（不是普通酸痛）</label><div class="chips">${checks("pain", BODY_AREAS, pain.map((p) => p.area))}</div>
-<label>最严重疼痛程度（0–10）</label><input type="number" min="0" max="10" name="pain_severity" value="${esc(painSeverity)}">
-<label>今天是否出现以下症状</label><div class="chips">${Object.entries(RED_FLAGS).map(([k, v]) =>
-    `<label><input type="checkbox" name="red_flags" value="${k}"${redFlags.includes(k) ? " checked" : ""}>${v}</label>`).join("")}</div>
-<label>备注</label><textarea name="note" rows="2">${esc(checkin?.note)}</textarea>
-<p><button type="submit">保存</button> <span class="muted">都可以不填，空着就是“未知”。</span></p></form>`));
-});
-
-function intIn(value: unknown, min: number, max: number): number | null {
-  if (typeof value !== "string" || value === "") return null;
-  const n = Number(value);
-  return Number.isInteger(n) && n >= min && n <= max ? n : null;
-}
-function clock(value: unknown): string | null {
-  return typeof value === "string" && /^\d{2}:\d{2}$/.test(value) ? value : null;
-}
-
-app.post("/checkin", async (c) => {
-  const form = await c.req.parseBody({ all: true });
-  const today = localDate(new Date(), c.env.LOCAL_TIME_ZONE);
-  const day = isIsoDate(form.local_date) ? form.local_date : today;
-  if (day > today) return c.text("不能为未来日期签到", 400);
-  const list = (v: unknown) => (Array.isArray(v) ? v : v === undefined ? [] : [v]).filter((x): x is string => typeof x === "string");
-  const areas = list(form.pain).filter((a) => BODY_AREAS.includes(a));
-  const severity = intIn(form.pain_severity, 0, 10);
-  const pain = areas.map((area) => ({ area, severity }));
-  const flags = list(form.red_flags).filter((f) => f in RED_FLAGS);
-  await c.env.DB.prepare(
-    `INSERT INTO daily_checkins (local_date, bedtime_local, waketime_local, sleep_quality, overall_rpe, coaching_intensity,
-       fatigue, energy, soreness_areas, pain_areas, caffeine_last_local, red_flags, note, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(local_date) DO UPDATE SET bedtime_local = excluded.bedtime_local, waketime_local = excluded.waketime_local,
-       sleep_quality = excluded.sleep_quality, overall_rpe = excluded.overall_rpe, coaching_intensity = excluded.coaching_intensity,
-       fatigue = excluded.fatigue, energy = excluded.energy, soreness_areas = excluded.soreness_areas, pain_areas = excluded.pain_areas,
-       caffeine_last_local = excluded.caffeine_last_local, red_flags = excluded.red_flags, note = excluded.note, updated_at = excluded.updated_at`,
-  ).bind(
-    day, clock(form.bedtime_local), clock(form.waketime_local), intIn(form.sleep_quality, 1, 5), intIn(form.overall_rpe, 0, 10),
-    intIn(form.coaching_intensity, 1, 10), intIn(form.fatigue, 1, 5), intIn(form.energy, 1, 5),
-    JSON.stringify(list(form.soreness).filter((a) => BODY_AREAS.includes(a))), JSON.stringify(pain), clock(form.caffeine_last_local),
-    JSON.stringify(flags), typeof form.note === "string" && form.note.trim() ? form.note.trim().slice(0, 1000) : null, new Date().toISOString(),
-  ).run();
-  await recomputeAll(c.env.DB, today);
-  return c.redirect("/", 303);
-});
-
-app.get("/quality", async (c) => {
-  const today = localDate(new Date(), c.env.LOCAL_TIME_ZONE);
-  const db = c.env.DB;
-  const [coverage, batches, jobs] = await Promise.all([
-    getAll<{ metric: string; d30: number; d90: number; last: string }>(db,
-      `SELECT metric, SUM(local_date >= ?) AS d30, COUNT(*) AS d90, MAX(local_date) AS last FROM daily_metrics
-       WHERE local_date >= ? GROUP BY metric ORDER BY metric`, addDays(today, -29), addDays(today, -89)),
-    getAll<{ received_at: string; status: string; bytes: number; records_upserted: number | null; records_skipped: number | null; error: string | null; name: string }>(db,
-      `SELECT b.received_at, b.status, b.bytes, b.records_upserted, b.records_skipped, b.error, s.name FROM ingest_batches b
-       JOIN sources s ON s.id = b.source_id ORDER BY b.received_at DESC LIMIT 15`),
-    getAll<{ job: string; run_key: string; status: string; detail: string | null }>(db,
-      "SELECT job, run_key, status, detail FROM job_runs ORDER BY ran_at DESC LIMIT 5"),
-  ]);
-  const covered = new Map(coverage.map((r) => [r.metric, r]));
-  const metrics = [...new Set([...BASELINE_METRICS, ...coverage.map((r) => r.metric)])];
-  return c.html(page("数据质量", `<h1>数据质量</h1>
-<p class="muted">每个指标最近 30 天、90 天有数据的天数。缺失不会被补值。基线需要至少 ${BASELINE_MIN_DAYS} 天数据。</p>
-<div class="card"><table><tr><th>指标</th><th>近 30 天</th><th>近 90 天</th><th>最近一天</th></tr>
-${metrics.map((k) => { const r = covered.get(k); return `<tr><td>${esc(METRIC_LABELS[k] ?? k)}</td><td>${r?.d30 ?? 0}</td><td>${r?.d90 ?? 0}</td><td>${esc(r?.last ?? "—")}</td></tr>`; }).join("")}
-</table></div>
-<h2>最近收到的数据包</h2><div class="card"><table><tr><th>时间（UTC）</th><th>来源</th><th>状态</th><th>写入/跳过</th><th>说明</th></tr>
-${batches.map((b) => `<tr><td>${esc(b.received_at.slice(0, 16).replace("T", " "))}</td><td>${esc(b.name)}</td><td>${esc(b.status)}</td>
-<td>${b.records_upserted ?? "—"} / ${b.records_skipped ?? "—"}</td><td><code>${esc(b.error ?? "")}</code></td></tr>`).join("") || '<tr><td colspan="5" class="muted">还没有收到数据</td></tr>'}
-</table></div>
-<h2>后台任务</h2><div class="card"><table>${jobs.map((j) => `<tr><td>${esc(j.job)}</td><td>${esc(j.run_key)}</td><td>${esc(j.status)}</td><td><code>${esc(j.detail ?? "")}</code></td></tr>`).join("") || '<tr><td class="muted">尚未运行</td></tr>'}</table></div>`));
-});
+registerPages(app);
+app.get("/quality", (c) => c.redirect("/data", 301));
+app.post("/checkin", (c) => c.redirect("/", 303)); // old form; the check-in now lives on /checkin/quick
 
 app.get("/sources", async (c) => {
   const rows = await getAll<{ id: string; kind: string; name: string; created_at: string; last_seen_at: string | null; revoked_at: string | null }>(
     c.env.DB, "SELECT id, kind, name, created_at, last_seen_at, revoked_at FROM sources ORDER BY created_at");
-  return c.html(page("数据源", `<h1>数据源</h1><div class="card"><table><tr><th>名称</th><th>类型</th><th>最后收到</th><th></th></tr>
-${rows.map((s) => `<tr><td>${esc(s.name)}</td><td>${esc(s.kind)}</td><td>${esc(s.last_seen_at?.slice(0, 16).replace("T", " ") ?? "—")}</td>
-<td>${s.revoked_at ? '<span class="muted">已停用</span>' : s.kind === "health_auto_export" ? `<form method="post" action="/sources/${esc(s.id)}/revoke"><button>停用令牌</button></form>` : ""}</td></tr>`).join("")
-    || '<tr><td colspan="4" class="muted">还没有数据源</td></tr>'}</table></div>
-<form class="card" method="post" action="/sources"><h2 style="margin-top:0">新建 Health Auto Export 数据源</h2>
-<label>名称</label><input name="name" value="iPhone · Health Auto Export" maxlength="60"><p><button>生成令牌</button></p>
-<p class="muted">令牌只显示一次。系统只保存它的哈希值。</p></form>`));
+  const KIND: Record<string, string> = { health_auto_export: "Health Auto Export", manual: "文件导入", quick_entry: "手动记录", coachchalk: "Coachchalk" };
+  return c.html(page("数据源令牌", `<section class="card"><div class="card-head"><div><h2>已有数据源</h2><p>每个数据源有独立令牌，系统只保存哈希值</p></div></div>
+<ul class="list">${rows.map((s) => `<li><span class="ico">${icon(s.kind === "health_auto_export" ? "phone" : "file", 16)}</span><div><strong>${esc(s.name)}</strong>
+<span class="sub">${esc(KIND[s.kind] ?? s.kind)} · 最后收到 ${esc(s.last_seen_at?.slice(0, 16).replace("T", " ") ?? "—")} UTC</span></div>
+${s.revoked_at ? '<span class="badge neutral">已停用</span>' : s.kind === "health_auto_export" ? `<form method="post" action="/sources/${esc(s.id)}/revoke"><button class="btn secondary sm">停用令牌</button></form>` : '<span class="badge success">使用中</span>'}</li>`).join("")
+    || '<li><span></span><span class="muted">还没有数据源</span><span></span></li>'}</ul></section>
+<form class="card" method="post" action="/sources"><div class="card-head"><div><h2>新建 Health Auto Export 数据源</h2><p>令牌只显示一次</p></div></div>
+<label class="field">名称<input name="name" value="iPhone · Health Auto Export" maxlength="60"></label><div class="actions" style="margin-top:12px"><button class="btn primary">生成令牌</button></div></form>`,
+    { path: "/sources", subtitle: "设置" }));
 });
 
 app.post("/sources", async (c) => {
@@ -209,10 +59,10 @@ app.post("/sources", async (c) => {
     .bind(crypto.randomUUID(), name, await sha256Hex(token), new Date().toISOString()).run();
   const origin = new URL(c.req.url).origin;
   c.header("Cache-Control", "no-store");
-  return c.html(page("令牌", `<h1>令牌已生成</h1><div class="card"><p><strong>只显示这一次，请现在复制到 Health Auto Export。</strong></p>
+  return c.html(page("令牌已生成", `<div class="card"><p><strong>只显示这一次，请现在复制到 Health Auto Export。</strong></p>
 <p>URL：<code>${esc(origin)}/ingest/hae</code></p><p>请求头：<code>Authorization: Bearer ${esc(token)}</code></p>
 <p class="muted">另外两个 Cloudflare Access 服务令牌请求头（CF-Access-Client-Id / CF-Access-Client-Secret）按 docs/SETUP.md 添加。</p>
-</div><p><a href="/sources">返回</a></p>`));
+</div><p><a class="btn secondary" href="/sources">返回</a></p>`, { path: "/sources", subtitle: "设置" }));
 });
 
 app.post("/sources/:id/revoke", async (c) => {
@@ -221,18 +71,27 @@ app.post("/sources/:id/revoke", async (c) => {
 });
 
 async function manualSourceId(db: D1Database) {
-  const row = await getOne<{ id: string }>(db, "SELECT id FROM sources WHERE kind = 'manual' AND revoked_at IS NULL LIMIT 1");
+  const row = await db.prepare("SELECT id FROM sources WHERE kind = 'manual' AND revoked_at IS NULL LIMIT 1").first<{ id: string }>();
   if (row) return row.id;
   const id = crypto.randomUUID();
   await db.prepare("INSERT INTO sources (id, kind, name, created_at) VALUES (?, 'manual', '手动导入', ?)").bind(id, new Date().toISOString()).run();
   return id;
 }
 
-app.get("/import", (c) => c.html(page("导入历史", `<h1>导入历史数据</h1>
-<form class="card" method="post" action="/import" enctype="multipart/form-data">
-<p>在 Health Auto Export 里选择“手动导出”，格式 JSON，聚合方式选“小时”，时间范围选过去 1–2 年，然后把导出的文件上传到这里。
-大文件可以按半年分几次导出。重复上传同一段时间不会产生重复数据。</p>
-<input type="file" name="file" accept="application/json,.json" required><p><button>上传</button></p></form>`)));
+app.get("/import", async (c) => {
+  const imports = await getAll<{ received_at: string; status: string; records_upserted: number | null; bytes: number }>(c.env.DB,
+    "SELECT b.received_at, b.status, b.records_upserted, b.bytes FROM ingest_batches b JOIN sources s ON s.id = b.source_id WHERE s.kind = 'manual' ORDER BY b.received_at DESC LIMIT 10");
+  return c.html(page("导入历史", `<form class="card" method="post" action="/import" enctype="multipart/form-data">
+<div class="card-head"><div><h2>${icon("upload", 18)} 导入 Apple Health 历史</h2><p>一次导入，之后由自动化每 1–2 小时补齐最近 7 天</p></div></div>
+<ol class="small" style="margin:0 0 14px;padding-left:18px;line-height:1.8"><li>Health Auto Export → 手动导出，格式 JSON，聚合选「小时」。</li><li>时间范围选过去 1–2 年；文件太大就按半年分几次。</li><li>上传到这里。系统会补算所有历史日子的每日指标和基线。</li></ol>
+<input type="file" name="file" accept="application/json,.json" required>
+<div class="actions" style="margin-top:12px"><button class="btn primary">上传</button><span class="hint">同一文件重复上传会被识别；重叠的时间段按「指标+时间+设备」去重，不会产生重复数据。</span></div></form>
+<section class="card"><div class="card-head"><div><h2>导入记录</h2></div></div>${imports.length ? `<ul class="list">${imports.map((b) => `<li><span class="ico">${icon("file", 16)}</span>
+<div><strong>${esc(b.received_at.slice(0, 16).replace("T", " "))} UTC</strong><span class="sub">${(b.bytes / 1024 / 1024).toFixed(1)} MB · 写入 ${b.records_upserted ?? "—"} 条</span></div>
+${b.status === "processed" ? '<span class="badge success">完成</span>' : b.status === "failed" ? '<span class="badge danger">失败</span>' : '<span class="badge info">处理中</span>'}</li>`).join("")}</ul>` : '<p class="empty">还没有导入过文件</p>'}</section>
+<div class="notice">${icon("info", 18)}<div><strong>其他导入方式</strong><br><span class="small muted">健康报告 PDF、截图识别还没有实现，所以这里不提供上传入口。智能秤、血压计等设备只要写入 Apple Health，就会通过自动化同步过来。</span></div></div>`,
+    { path: "/import", subtitle: "设置" }));
+});
 
 app.post("/import", async (c) => {
   const form = await c.req.parseBody();
@@ -240,20 +99,23 @@ app.post("/import", async (c) => {
   if (!(file instanceof File) || !file.size) return c.text("请选择文件", 400);
   if (file.size > MAX_PAYLOAD_BYTES) return c.text("文件超过 50 MB，请缩短时间范围分次导出", 413);
   const result = await acceptPayload(c.env, await manualSourceId(c.env.DB), new Uint8Array(await file.arrayBuffer()));
-  return c.html(page("已接收", `<h1>${result.duplicate ? "这份文件之前已经导入过" : "已接收，后台处理中"}</h1>
-<p>处理结果会显示在 <a href="/quality">数据质量</a> 页。</p>`));
+  return c.html(page(result.duplicate ? "已导入过" : "已接收", `<div class="notice ${result.duplicate ? "info" : "success"}">${icon(result.duplicate ? "info" : "check", 18)}<div>
+<strong>${result.duplicate ? "这份文件之前已经导入过，没有重复写入。" : "已接收，后台处理中。"}</strong><br><span class="small">处理结果会显示在 <a href="/import">导入记录</a> 和 <a href="/data">数据</a> 页。</span></div></div>`,
+    { path: "/import", subtitle: "设置" }));
 });
 
-const EXPORT_TABLES = ["sources", "observations", "sleep_sessions", "workouts", "work_daily", "coaching_sessions", "daily_checkins", "daily_metrics", "baselines", "daily_load", "ingest_batches"];
+const EXPORT_TABLES = ["sources", "observations", "sleep_sessions", "workouts", "work_daily", "coaching_sessions", "daily_checkins", "meals",
+  "profile", "goal_history", "insight_snapshots", "daily_metrics", "baselines", "daily_load", "ingest_batches"];
 
 app.get("/privacy", async (c) => {
   const sources = await getAll<{ id: string; name: string }>(c.env.DB, "SELECT id, name FROM sources ORDER BY created_at");
-  return c.html(page("导出与删除", `<h1>导出与删除</h1>
-<div class="card"><p><a href="/export.json">下载全部数据（JSON）</a></p><p class="muted">令牌哈希不会被导出。原始数据包是加密的，保存在 R2。</p></div>
-<form class="card danger" method="post" action="/delete"><h2 style="margin-top:0">删除数据</h2>
-<label>范围</label><select name="scope"><option value="">请选择</option><option value="all">全部数据（包括签到和原始数据包）</option>
-${sources.map((s) => `<option value="source:${esc(s.id)}">只删除来自「${esc(s.name)}」的数据</option>`).join("")}</select>
-<label>输入 DELETE 确认</label><input name="confirm" autocomplete="off"><p><button>永久删除</button></p></form>`));
+  return c.html(page("导出与删除", `<section class="card"><div class="card-head"><div><h2>${icon("shield", 18)} 你的数据</h2><p>只有你能访问（Cloudflare Access 登录）。默认不与 Coachchalk、教练、学生或家长共享。</p></div></div>
+<div class="actions"><a class="btn primary" href="/export.json">下载全部数据（JSON）</a><span class="hint">令牌哈希不会被导出。原始数据包以 AES-256-GCM 加密保存在 R2。</span></div></section>
+<form class="card" method="post" action="/delete" style="border-color:var(--color-danger-border)"><div class="card-head"><div><h2>删除数据</h2><p>永久删除，无法恢复</p></div></div>
+<div class="form-grid"><label class="field">范围<select name="scope"><option value="">请选择</option><option value="all">全部数据（包括签到、饮食、档案和原始数据包）</option>
+${sources.map((s) => `<option value="source:${esc(s.id)}">只删除来自「${esc(s.name)}」的数据</option>`).join("")}</select></label>
+<label class="field">输入 DELETE 确认<input name="confirm" autocomplete="off"></label></div>
+<div class="actions" style="margin-top:12px"><button class="btn danger">永久删除</button></div></form>`, { path: "/privacy", subtitle: "设置" }));
 });
 
 app.get("/export.json", async (c) => {
@@ -291,13 +153,14 @@ app.post("/delete", async (c) => {
       db.prepare("DELETE FROM sleep_sessions WHERE source_id = ?").bind(id),
       db.prepare("DELETE FROM workouts WHERE source_id = ?").bind(id),
       db.prepare("DELETE FROM ingest_batches WHERE source_id = ?").bind(id),
+      db.prepare("DELETE FROM insight_snapshots"), // derived from the deleted data
     ]);
     await deleteR2Prefix(c.env.RAW, `raw/${id}/`);
   } else {
     return c.text("请选择删除范围", 400);
   }
   await recomputeAll(db, localDate(new Date(), c.env.LOCAL_TIME_ZONE));
-  return c.html(page("已删除", `<h1>已删除</h1><p><a href="/quality">查看数据质量</a></p>`));
+  return c.html(page("已删除", `<div class="notice success">${icon("check", 18)}<div><strong>已删除。</strong> <a href="/data">查看数据页</a></div></div>`, { path: "/privacy" }));
 });
 
 async function hourly(env: Env, now: Date) {
