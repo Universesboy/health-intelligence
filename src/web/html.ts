@@ -283,6 +283,36 @@ code{font-size:12px;word-break:break-all}
   .status-row{flex-direction:column;align-items:flex-start}
   .chart text{font-size:19px}.chart.wide text{font-size:32px}
 }
+/* Connect wizard */
+.connect-banner{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;padding:14px 16px;border-radius:var(--radius-lg);background:var(--color-brand);color:#fff;text-decoration:none;box-shadow:var(--shadow-card)}
+.connect-banner .icon:first-child{color:var(--color-accent)}
+.connect-banner strong{display:block}.connect-banner span span{display:block;opacity:.78;font-size:var(--text-sm)}
+.connect-banner.warn{background:var(--color-warning-soft);color:var(--color-text);border:1px solid var(--color-border)}.connect-banner.warn .icon:first-child{color:var(--color-warning)}
+.csteps{list-style:none;margin:0;padding:0;display:grid}
+.cstep{display:grid;grid-template-columns:32px minmax(0,1fr);gap:14px;padding:16px 0;border-top:1px solid var(--color-border)}
+.cstep:first-child{border-top:0;padding-top:0}
+.cstep-n{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:var(--color-surface-muted);color:var(--color-text-secondary);font-weight:700;font-family:"Space Grotesk",Inter,sans-serif}
+.cstep.now .cstep-n{background:var(--color-accent);color:var(--color-brand)}
+.cstep.done .cstep-n{background:var(--color-success-soft);color:var(--color-success)}
+.cstep-body{display:grid;gap:8px;min-width:0}.cstep-body h3{margin:4px 0 0;font-size:var(--text-md,16px)}.cstep-body p{margin:0}
+.cstep.done .cstep-body h3{color:var(--color-text-secondary)}
+ol.plain,ul.plain{margin:0;padding-left:20px;display:grid;gap:6px}
+.hae-link{min-height:48px;white-space:normal;text-align:center}
+.qr-desktop{display:none}
+@media (min-width:761px){.qr-desktop{display:grid;grid-template-columns:auto minmax(0,1fr);gap:16px;align-items:center;padding:14px;border:1px dashed var(--color-border-strong);border-radius:var(--radius-lg);background:var(--color-surface)}}
+.qr-box{width:240px;height:240px;background:#fff;border-radius:10px;padding:4px}.qr-svg{width:100%;height:100%;display:block}
+.first-data{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:start;padding:14px 16px;border-radius:var(--radius-lg);border:1px solid var(--color-border);background:var(--color-surface-muted)}
+.first-data strong{display:block}.first-data span{color:var(--color-text-secondary);font-size:var(--text-sm)}
+.first-data.ok{background:var(--color-success-soft);border-color:#b4dac3}.first-data.bad{background:var(--color-danger-soft);border-color:var(--color-danger-border)}
+.pulse-dot{width:12px;height:12px;margin-top:5px;border-radius:50%;background:var(--color-info);animation:pulse 1.4s ease-in-out infinite}
+.ok-dot,.bad-dot{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;color:#fff;font-weight:700;font-size:13px;background:var(--color-success)}.bad-dot{background:var(--color-danger)}
+@keyframes pulse{0%,100%{opacity:.35;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
+@media (prefers-reduced-motion:reduce){.pulse-dot{animation:none}}
+ul.got{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 0;padding:0;list-style:none}ul.got li{padding:2px 8px;border-radius:var(--radius-full);background:#fff;font-size:var(--text-xs)}
+details.trouble,details.more-links{border:1px solid var(--color-border);border-radius:var(--radius-lg);background:var(--color-surface);padding:12px 16px}
+details.more-links{background:var(--color-surface-muted)}
+details summary{cursor:pointer;font-weight:600;display:flex;align-items:center;gap:8px}
+details.trouble ol{margin:10px 0 0;padding-left:20px;display:grid;gap:6px}details.trouble .field{margin-top:8px}
 .chart.wide text{font-size:13px}
 @media (max-width:760px){.chart.wide text{font-size:32px}}
 `;
@@ -298,7 +328,7 @@ const NAV: NavItem[] = [
 const NAV_MORE: NavItem[] = [
   { href: "/profile", label: "档案与目标", icon: "user" },
   { href: "/import", label: "导入历史", icon: "upload" },
-  { href: "/sources", label: "数据源令牌", icon: "link" },
+  { href: "/connect", label: "连接 Apple Health", icon: "phone" },
   { href: "/privacy", label: "导出与删除", icon: "shield" },
 ];
 
