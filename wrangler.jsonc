@@ -1,0 +1,31 @@
+// Health Intelligence Worker. Replace the two database_id values after `wrangler d1 create`
+// (see docs/SETUP.md). Secrets are set with `wrangler secret put`, never in this file.
+{
+  "name": "health-intelligence",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true, "logs": { "invocation_logs": false } },
+  "vars": {
+    "LOCAL_TIME_ZONE": "America/Vancouver",
+    "AUTH_MODE": "cloudflare-access"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "health",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  // Coachchalk work hours through its Work Feed (RPC). Health has no access to Coachchalk's database.
+  // The coach turns sharing on in Coachchalk (Work hours page); every read is logged there.
+  "services": [{ "binding": "COACHCHALK_WORK", "service": "coachos", "entrypoint": "HealthWorkFeed" }],
+  "r2_buckets": [{ "binding": "RAW", "bucket_name": "health-raw" }],
+  "queues": {
+    "producers": [{ "binding": "INGEST_QUEUE", "queue": "health-ingest" }],
+    "consumers": [{ "queue": "health-ingest", "max_batch_size": 1, "max_retries": 5, "dead_letter_queue": "health-ingest-dlq" }]
+  },
+  // Cron is UTC only. Run hourly and decide in code by America/Vancouver local time (DST-safe).
+  "triggers": { "crons": ["7 * * * *"] }
+}

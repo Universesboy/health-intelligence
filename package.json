@@ -1,0 +1,30 @@
+{
+  "name": "health-intelligence",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "wrangler d1 migrations apply health --local",
+    "db:migrate:remote": "wrangler d1 migrations apply health --remote"
+  },
+  "dependencies": {
+    "drizzle-orm": "0.45.2",
+    "hono": "4.12.34"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261101.1",
+    "@types/node": "22.19.19",
+    "drizzle-kit": "0.31.10",
+    "typescript": "5.9.3",
+    "vitest": "4.1.12",
+    "wrangler": "4.160.1"
+  }
+}
