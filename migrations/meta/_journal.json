@@ -15,6 +15,13 @@
       "when": 1795588284665,
       "tag": "0001_work_daily",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1795730136529,
+      "tag": "0002_health_profile_goals_meals",
+      "breakpoints": true
     }
   ]
 }

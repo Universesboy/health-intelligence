@@ -65,3 +65,14 @@ describe("dedup keys never contain values", () => {
     expect(workoutKey({ externalId: "w-1", startUtc: "x", name: "y" })).toBe("wk|w-1");
   });
 });
+
+import { earliestLocalDate } from "../src/ingest/process";
+import { daysBack } from "../src/jobs/derived";
+describe("history import recompute range", () => {
+  it("reaches back to the earliest day in the batch", () => {
+    const parsed = parseHaePayload(sample);
+    expect(earliestLocalDate(parsed, "America/Vancouver")).toBe("2026-11-20");
+    expect(daysBack("2026-11-26", "2026-11-20")).toBe(7); // recomputeAll still covers at least 10 days
+    expect(daysBack("2026-11-26", "2025-11-26")).toBe(366);
+  });
+});

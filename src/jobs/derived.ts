@@ -3,12 +3,20 @@ import { addDays } from "../lib/time";
 import { baseline, coachingLoad, coveredMean, hoursBetweenClock, trainingLoad } from "../lib/stats";
 
 /** Metrics summed per day. Others are averaged per day. */
-export const CUMULATIVE = new Set(["steps", "walking_running_distance", "flights_climbed", "active_energy", "basal_energy", "water"]);
+export const CUMULATIVE = new Set(["steps", "walking_running_distance", "flights_climbed", "active_energy", "basal_energy", "water",
+  "dietary_energy", "protein", "carbohydrates", "total_fat", "exercise_minutes"]);
+
+/** Subjective scores copied from the check-in so trends and correlations read one table. */
+const CHECKIN_SCORES = ["readiness", "energy", "fatigue", "sleep_quality"] as const;
+
+/** Longest history recomputed after an import (about three years). */
+export const MAX_RECOMPUTE_DAYS = 1100;
 
 /** Metrics that get a personal baseline (28 and 90 days). */
 export const BASELINE_METRICS = [
   "steps", "walking_running_distance", "active_energy", "resting_heart_rate", "hrv_sdnn", "body_mass",
   "waist_circumference", "sleep_hours_device", "sleep_hours_self", "walking_speed", "coaching_minutes",
+  "readiness", "water",
 ];
 
 const RECOMPUTE_DAYS = 10; // covers the 7-day window Health Auto Export re-sends
@@ -43,15 +51,25 @@ export async function recomputeDailyMetrics(db: D1Database, today: string, now: 
   ).bind(now, from).run();
 
   const checkins = await db.prepare(
-    "SELECT local_date, bedtime_local, waketime_local FROM daily_checkins WHERE local_date >= ?",
-  ).bind(from).all<{ local_date: string; bedtime_local: string | null; waketime_local: string | null }>();
+    `SELECT local_date, bedtime_local, waketime_local, sleep_hours_self, readiness, energy, fatigue, sleep_quality
+     FROM daily_checkins WHERE local_date >= ?`,
+  ).bind(from).all<Record<string, string | number | null> & { local_date: string }>();
   const selfSleep: D1PreparedStatement[] = [];
+  const insert = (day: string, metric: string, value: number, unit: string) => selfSleep.push(db.prepare(
+    "INSERT INTO daily_metrics (local_date, metric, value, unit, samples, computed_at) VALUES (?, ?, ?, ?, 1, ?)",
+  ).bind(day, metric, value, unit, now));
   for (const c of checkins.results ?? []) {
-    const h = c.bedtime_local && c.waketime_local ? hoursBetweenClock(c.bedtime_local, c.waketime_local) : null;
-    if (h !== null) selfSleep.push(db.prepare(
-      "INSERT INTO daily_metrics (local_date, metric, value, unit, samples, computed_at) VALUES (?, 'sleep_hours_self', ?, 'h', 1, ?)",
-    ).bind(c.local_date, h, now));
+    const bed = typeof c.bedtime_local === "string" ? c.bedtime_local : null;
+    const wake = typeof c.waketime_local === "string" ? c.waketime_local : null;
+    // Clock times win over a stated duration; both are self-reported and never mixed with device sleep.
+    const h = bed && wake ? hoursBetweenClock(bed, wake) : typeof c.sleep_hours_self === "number" ? c.sleep_hours_self : null;
+    if (h !== null && h > 0 && h <= 16) insert(c.local_date, "sleep_hours_self", h, "h");
+    for (const k of CHECKIN_SCORES) if (typeof c[k] === "number") insert(c.local_date, k, c[k] as number, "score");
   }
+  await db.prepare(
+    `INSERT INTO daily_metrics (local_date, metric, value, unit, samples, computed_at)
+     SELECT local_date, 'meals_logged', COUNT(*), 'count', COUNT(*), ? FROM meals WHERE local_date >= ? GROUP BY local_date`,
+  ).bind(now, from).run();
   await db.prepare(
     `INSERT INTO daily_metrics (local_date, metric, value, unit, samples, computed_at)
      SELECT local_date, 'coaching_minutes', teaching_min, 'min', lessons, ? FROM work_daily
@@ -131,8 +149,19 @@ export async function recomputeLoad(db: D1Database, today: string, now: string, 
   for (let i = 0; i < statements.length; i += 50) await db.batch(statements.slice(i, i + 50));
 }
 
-export async function recomputeAll(db: D1Database, today: string, now = new Date().toISOString()) {
-  await recomputeDailyMetrics(db, today, now);
+/**
+ * Rebuild the derived layer. `days` defaults to the window Health Auto Export re-sends; an
+ * import of history passes how far back it reaches so old days get daily metrics too.
+ */
+export async function recomputeAll(db: D1Database, today: string, now = new Date().toISOString(), days = RECOMPUTE_DAYS) {
+  const span = Math.min(Math.max(days, RECOMPUTE_DAYS), MAX_RECOMPUTE_DAYS);
+  await recomputeDailyMetrics(db, today, now, span);
   await recomputeBaselines(db, today, now);
-  await recomputeLoad(db, today, now);
+  await recomputeLoad(db, today, now, span);
+}
+
+/** Days between the earliest local day touched by a batch and today (for recomputeAll). */
+export function daysBack(today: string, earliest: string | null): number {
+  if (!earliest || earliest >= today) return RECOMPUTE_DAYS;
+  return Math.ceil((Date.parse(`${today}T12:00:00Z`) - Date.parse(`${earliest}T12:00:00Z`)) / 86_400_000) + 1;
 }

@@ -139,6 +139,9 @@ export const dailyCheckins = sqliteTable("daily_checkins", {
   painAreas: text("pain_areas").notNull().default("[]"), // JSON array of {area, severity 1..10}
   caffeineLastLocal: text("caffeine_last_local"),
   redFlags: text("red_flags").notNull().default("[]"), // JSON array; any entry shows the emergency notice
+  sleepHoursSelf: real("sleep_hours_self"), // stated duration ("slept 7.5 h") when no clock times were given
+  readiness: integer("readiness"), // 1..5, how recovered you feel
+  entryMethod: text("entry_method"), // form | quick | sentence
   note: text("note"),
   updatedAt: text("updated_at").notNull(),
 });
@@ -183,3 +186,61 @@ export const jobRuns = sqliteTable("job_runs", {
   status: text("status").notNull(),
   detail: text("detail"),
 }, (t) => [primaryKey({ columns: [t.job, t.runKey] })]);
+
+/**
+ * Single-row health profile. Every field is optional: nothing sensitive is required, and an
+ * empty field only means some analyses explain what they would need.
+ */
+export const profile = sqliteTable("profile", {
+  id: integer("id").primaryKey(), // always 1
+  birthYear: integer("birth_year"),
+  sex: text("sex"), // female | male | unspecified (only used for reference ranges, never required)
+  heightCm: real("height_cm"),
+  primaryGoal: text("primary_goal"), // sleep | weight | performance | recovery | general
+  secondaryGoal: text("secondary_goal"),
+  targetWeightKg: real("target_weight_kg"),
+  activityLevel: text("activity_level"), // low | moderate | high | athlete
+  usualBedLocal: text("usual_bed_local"), // "23:30"
+  usualWakeLocal: text("usual_wake_local"), // "07:00"
+  trainingDaysPerWeek: integer("training_days_per_week"),
+  waterTargetMl: integer("water_target_ml"),
+  proteinTargetG: integer("protein_target_g"),
+  updatedAt: text("updated_at").notNull(),
+});
+
+/** Every goal the user has had, so trends can be read against the goal at that time. */
+export const goalHistory = sqliteTable("goal_history", {
+  id: text("id").primaryKey(),
+  primaryGoal: text("primary_goal").notNull(),
+  secondaryGoal: text("secondary_goal"),
+  targetWeightKg: real("target_weight_kg"),
+  startedOn: text("started_on").notNull(),
+  endedOn: text("ended_on"),
+}, (t) => [index("idx_goal_started").on(t.startedOn)]);
+
+/**
+ * Low-effort meal log: a description and a rough size. Numbers are optional estimates and are
+ * always labelled as such (provenance user_estimate); nothing is computed by guessing.
+ */
+export const meals = sqliteTable("meals", {
+  id: text("id").primaryKey(),
+  localDate: text("local_date").notNull(),
+  slot: text("slot").notNull(), // breakfast | lunch | dinner | snack
+  description: text("description").notNull(),
+  size: text("size"), // light | normal | large
+  proteinServing: integer("protein_serving"), // 0 none, 1 some, 2 a palm or more
+  kcalEstimate: real("kcal_estimate"),
+  proteinGEstimate: real("protein_g_estimate"),
+  provenance: text("provenance").notNull().default("user_estimate"),
+  entryMethod: text("entry_method").notNull(), // form | repeat | sentence
+  createdAt: text("created_at").notNull(),
+}, (t) => [index("idx_meals_date").on(t.localDate)]);
+
+/** One saved analysis per local day, kept only when it differs from the previous one. */
+export const insightSnapshots = sqliteTable("insight_snapshots", {
+  localDate: text("local_date").primaryKey(),
+  contentSha256: text("content_sha256").notNull(),
+  payload: text("payload").notNull(), // JSON: focus, changes, quality, completeness summary
+  engineVersion: integer("engine_version").notNull(),
+  createdAt: text("created_at").notNull(),
+});

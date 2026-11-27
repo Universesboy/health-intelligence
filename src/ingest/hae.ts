@@ -66,6 +66,7 @@ interface MetricSpec {
 const lengthToKm: Record<string, Converter> = { km: same, mi: (v) => v * 1.609344, m: (v) => v / 1000 };
 const energyToKcal: Record<string, Converter> = { kcal: same, kJ: (v) => v / 4.184, Cal: same };
 const lengthToCm: Record<string, Converter> = { cm: same, in: (v) => v * 2.54, m: (v) => v * 100 };
+const grams: Record<string, Converter> = { g: same, mg: (v) => v / 1000, oz: (v) => v * 28.349523125 };
 const percent: Record<string, Converter> = { "%": (v) => (v <= 1 ? v * 100 : v) }; // HealthKit percent may be a 0..1 fraction
 
 /** HAE metric name -> internal metric. Names come from the HAE docs (snake_case of the display name). */
@@ -87,6 +88,15 @@ export const METRICS: Record<string, MetricSpec> = {
   walking_asymmetry_percentage: { metric: "walking_asymmetry_pct", unit: "%", units: percent },
   walking_double_support_percentage: { metric: "walking_double_support_pct", unit: "%", units: percent },
   dietary_water: { metric: "water", unit: "mL", units: { mL: same, L: (v) => v * 1000, fl_oz_us: (v) => v * 29.5735 } },
+  // Nutrition written to Apple Health by any food app flows in automatically (no typing here).
+  dietary_energy: { metric: "dietary_energy", unit: "kcal", units: energyToKcal },
+  protein: { metric: "protein", unit: "g", units: grams },
+  carbohydrates: { metric: "carbohydrates", unit: "g", units: grams },
+  total_fat: { metric: "total_fat", unit: "g", units: grams },
+  // Need an Apple Watch; accepted so data appears the day one is paired.
+  apple_exercise_time: { metric: "exercise_minutes", unit: "min", units: { min: same } },
+  blood_oxygen_saturation: { metric: "spo2_pct", unit: "%", units: percent },
+  respiratory_rate: { metric: "respiratory_rate", unit: "count/min", units: { "count/min": same } },
   vo2_max: { metric: "vo2_max", unit: "mL/kg/min", units: { "ml/(kg·min)": same, "mL/min·kg": same, "ml/kg/min": same } },
 };
 

@@ -3,7 +3,7 @@
 import type { Env } from "../env";
 import { decryptBytes, encryptBytes, sha256Hex } from "../lib/crypto";
 import { localDate } from "../lib/time";
-import { recomputeAll } from "../jobs/derived";
+import { daysBack, recomputeAll } from "../jobs/derived";
 import { parseHaePayload } from "./hae";
 import { storeParsed } from "./store";
 
@@ -26,6 +26,15 @@ export async function acceptPayload(env: Env, sourceId: string, body: Uint8Array
   await env.DB.prepare("UPDATE sources SET last_seen_at = ? WHERE id = ?").bind(now.toISOString(), sourceId).run();
   await env.INGEST_QUEUE.send({ batchId });
   return { batchId, duplicate: false };
+}
+
+export function earliestLocalDate(parsed: ReturnType<typeof parseHaePayload>, timeZone: string): string | null {
+  let min: string | null = null;
+  const consider = (utc: string | null | undefined) => { if (utc && (min === null || utc < min)) min = utc; };
+  for (const o of parsed.observations) consider(o.startUtc);
+  for (const s of parsed.sleep) consider(s.wakeUtc);
+  for (const w of parsed.workouts) consider(w.startUtc);
+  return min ? localDate(min, timeZone) : null;
 }
 
 /** Error text stored on a batch: type of failure only, never payload content. */
@@ -53,7 +62,9 @@ export async function processBatch(env: Env, batchId: string) {
     ).bind(now, upserted, skipped, Object.keys(parsed.skipped).length ? JSON.stringify(parsed.skipped) : null, batchId).run();
     // Skip reasons contain metric names and counts only.
     console.log(JSON.stringify({ event: "batch_processed", batchId, upserted, skipped }));
-    await recomputeAll(env.DB, localDate(new Date(), env.LOCAL_TIME_ZONE), now);
+    // A history import reaches back months: rebuild daily metrics from its earliest day, not just the last 10.
+    const today = localDate(new Date(), env.LOCAL_TIME_ZONE);
+    await recomputeAll(env.DB, today, now, daysBack(today, earliestLocalDate(parsed, env.LOCAL_TIME_ZONE)));
   } catch (error) {
     const reason = safeError(error);
     await env.DB.prepare("UPDATE ingest_batches SET status = 'failed', processed_at = ?, error = ? WHERE id = ?").bind(now, reason, batchId).run();
