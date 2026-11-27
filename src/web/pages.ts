@@ -14,6 +14,7 @@ import { all, CHECKIN_FIELDS, getCoverage, getLoad, getProfile, getSeries, getWa
 import { barChart, loadChart, ring, sparkline, trendChart } from "./charts";
 import { esc, page } from "./html";
 import { icon, type IconName } from "./icons";
+import { connectBanner, haeState } from "./connect";
 
 export const RED_FLAGS: Record<string, string> = {
   chest_pain: "胸痛或胸闷", severe_breathlessness: "严重呼吸困难", fainting: "晕厥或几乎晕倒", palpitations_dizzy: "心悸并伴头晕",
@@ -115,10 +116,11 @@ export function registerPages(app: Hono<AppEnv>) {
       one<{ coaching_intensity: number }>(db, "SELECT coaching_intensity FROM daily_checkins WHERE coaching_intensity IS NOT NULL AND local_date < ? ORDER BY local_date DESC LIMIT 1", today),
     ]);
     const goal = goalOf(profile);
-    const [{ series, load, report }, coverage, work, baselines] = await Promise.all([
+    const [{ series, load, report }, coverage, work, baselines, hae] = await Promise.all([
       loadReport(db, today, tz, profile, checkin), getCoverage(db, today, profile),
       one<{ teaching_min: number; lessons: number }>(db, "SELECT teaching_min, lessons FROM work_daily WHERE local_date = ?", today),
       all<{ metric: string; median: number | null; mad: number | null; n: number }>(db, "SELECT metric, median, mad, n FROM baselines WHERE as_of_date = ? AND window_days = 28", today),
+      haeState(db),
     ]);
     const list28 = analyses(coverage, goal); const score = readinessScore(list28);
     c.executionCtx.waitUntil(saveSnapshot(db, today, report, score).catch(() => undefined));
@@ -173,7 +175,7 @@ export function registerPages(app: Hono<AppEnv>) {
     const hour = localParts(new Date(), tz).hour;
     const greet = hour < 11 ? "早上好" : hour < 18 ? "下午好" : "晚上好";
 
-    return c.html(page("今天", `${emergency}
+    return c.html(page("今天", `${emergency}${connectBanner(hae)}
 <section class="board-wrap" aria-labelledby="hero"><div class="board">
   <div><p class="eyebrow">${esc(today)} · ${weekday(today)} · 目标：${GOAL_LABELS[goal]}</p>
   <h1 id="hero" style="margin-top:6px">${greet}，Colin</h1>
@@ -533,7 +535,7 @@ ${history.length ? history.map((h) => { const p = JSON.parse(h.payload) as { foc
     type Src = { name: string; ic: IconName; status: "live" | "available" | "stale" | "setup" | "device" | "planned" | "na"; detail: string };
     const catalog: Src[] = [
       { name: "iPhone 健康数据（Health Auto Export）", ic: "phone", status: !hae.length ? "setup" : haeLast && Date.now() - Date.parse(haeLast) < 48 * 3_600_000 ? "live" : "stale",
-        detail: hae.length ? `最近收到：${ago(haeLast)}。步数、距离、活动能量、体重、饮水，以及任何写入 Apple Health 的饮食数据。` : "需要在数据源令牌页生成令牌，并在 iPhone 上配置自动化。" },
+        detail: hae.length ? `最近收到：${ago(haeLast)}。步数、距离、活动能量、体重、饮水，以及任何写入 Apple Health 的饮食数据。` : '还没有收到数据。用 <a href="/connect">连接 Apple Health</a> 向导一键配置，约 3 分钟。' },
       { name: "Coachchalk 工时", ic: "whistle", status: coach === "ok" ? "live" : coach ? "setup" : "setup",
         detail: coach === "ok" ? `每小时自动同步教学时长（最近一次 ${esc(job!.run_key.replace("T", " "))}:07 UTC）。` : coach === "not_granted" ? "需要在 Coachchalk「工时」页打开「共享给 Coach Health」。" : "尚未运行或未配置。" },
       { name: "手动 + 一句话记录", ic: "sparkles", status: "available", detail: "体重、饮水、腰围、睡眠、恢复感受、饮食。都会先给你确认。" },
@@ -563,7 +565,7 @@ ${groups.map(([title, items]) => items.length ? `<section class="card"><div clas
 <div><strong>${esc(a.title)}</strong><span class="sub">${esc(a.summary)}</span>${a.next ? `<span class="sub" style="color:var(--color-text);margin-top:4px">→ ${esc(a.next)}</span>` : ""}</div>
 <div style="display:grid;gap:4px;justify-items:end">${statusBadge(a)}<span class="hint">${ACQ_LABEL[a.acquisition]}</span></div></li>`).join("")}</ul></section>` : "").join("")}
 ${skip.length ? `<div class="notice">${icon("check", 18)}<div><strong>当前目标下可以不收集</strong><br><span class="muted small">${skip.map((a) => esc(a.title)).join("、")}。有了也会使用，但不记录不会影响你的分析。</span></div></div>` : ""}
-<section class="card"><div class="card-head"><div><h2>数据来源</h2><p>系统自动在处理什么，以及哪些还需要你做</p></div><a class="btn ghost sm" href="/import">${icon("upload", 14)} 导入历史</a></div>
+<section class="card"><div class="card-head"><div><h2>数据来源</h2><p>系统自动在处理什么，以及哪些还需要你做</p></div><div class="actions"><a class="btn secondary sm" href="/connect">${icon("phone", 14)} 连接 Apple Health</a><a class="btn ghost sm" href="/import">${icon("upload", 14)} 导入历史</a></div></div>
 <ul class="list">${catalog.map((s) => `<li><span class="ico">${icon(s.ic, 16)}</span><div><strong>${esc(s.name)}</strong><span class="sub">${s.detail}</span></div>${SRC_BADGE[s.status]}</li>`).join("")}</ul></section>
 <div class="grid two">
 <section class="card"><div class="card-head"><div><h2>各指标覆盖</h2><p>近 30 天有数据的天数 · 缺失不会被补值</p></div></div><div class="table-wrap"><table><tr><th>指标</th><th>近 30 天</th><th>最近一天</th></tr>
@@ -605,6 +607,10 @@ ${batches.map((b) => `<tr><td>${esc(b.received_at.slice(5, 16).replace("T", " ")
 </div>
 <div class="actions" style="margin-top:18px"><button class="btn primary">保存档案</button></div></form>
 ${goals.length ? `<section class="card"><div class="card-head"><div><h2>目标历史</h2></div></div><ul class="list">${goals.map((g) => `<li><span class="ico">${icon("today", 16)}</span><div><strong>${esc(GOAL_LABELS[g.primary_goal as Goal] ?? g.primary_goal)}${g.target_weight_kg ? ` · ${num(g.target_weight_kg, 1)} kg` : ""}</strong><span class="sub">${esc(g.started_on)} – ${esc(g.ended_on ?? "至今")}</span></div><span></span></li>`).join("")}</ul></section>` : ""}
+<section class="card"><div class="card-head"><div><h2>设置</h2></div></div><ul class="list">
+<li><span class="ico">${icon("phone", 16)}</span><div><strong><a href="/connect">连接 Apple Health</a></strong><span class="sub">一键配置 iPhone 自动同步、查看同步状态</span></div><span></span></li>
+<li><span class="ico">${icon("upload", 16)}</span><div><strong><a href="/import">导入历史</a></strong><span class="sub">上传 Health Auto Export 导出的 JSON 文件</span></div><span></span></li>
+<li><span class="ico">${icon("shield", 16)}</span><div><strong><a href="/privacy">导出与删除</a></strong><span class="sub">下载全部数据，或按来源删除</span></div><span></span></li></ul></section>
 <div class="notice">${icon("shield", 18)}<div><strong>隐私</strong><br><span class="small muted">Coach Health 的数据默认不对任何人开放，包括你的教练账号、学生和家长。未来接入 Coachchalk 共享时，需要你逐项授权，可以随时撤回。</span></div></div>`,
     { path: "/profile", subtitle: "设置" }));
   });

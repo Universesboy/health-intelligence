@@ -9,6 +9,7 @@ import { recomputeAll } from "./jobs/derived";
 import { esc, page } from "./web/html";
 import { icon } from "./web/icons";
 import { registerPages } from "./web/pages";
+import { registerConnect } from "./web/connect";
 export { RED_FLAGS } from "./web/pages";
 
 const app = new Hono<AppEnv>();
@@ -34,6 +35,7 @@ async function getAll<T>(db: D1Database, sql: string, ...params: unknown[]) {
 }
 
 registerPages(app);
+registerConnect(app);
 app.get("/quality", (c) => c.redirect("/data", 301));
 app.post("/checkin", (c) => c.redirect("/", 303)); // old form; the check-in now lives on /checkin/quick
 
@@ -46,7 +48,8 @@ app.get("/sources", async (c) => {
 <span class="sub">${esc(KIND[s.kind] ?? s.kind)} · 最后收到 ${esc(s.last_seen_at?.slice(0, 16).replace("T", " ") ?? "—")} UTC</span></div>
 ${s.revoked_at ? '<span class="badge neutral">已停用</span>' : s.kind === "health_auto_export" ? `<form method="post" action="/sources/${esc(s.id)}/revoke"><button class="btn secondary sm">停用令牌</button></form>` : '<span class="badge success">使用中</span>'}</li>`).join("")
     || '<li><span></span><span class="muted">还没有数据源</span><span></span></li>'}</ul></section>
-<form class="card" method="post" action="/sources"><div class="card-head"><div><h2>新建 Health Auto Export 数据源</h2><p>令牌只显示一次</p></div></div>
+<div class="notice info">${icon("info", 18)}<div><strong>第一次连接 iPhone？</strong><br><span class="small muted">用 <a href="/connect">连接 Apple Health</a> 向导，一键填好所有设置。这一页用于手动管理令牌。</span></div></div>
+<form class="card" method="post" action="/sources"><div class="card-head"><div><h2>新建 Health Auto Export 数据源（手动）</h2><p>令牌只显示一次</p></div></div>
 <label class="field">名称<input name="name" value="iPhone · Health Auto Export" maxlength="60"></label><div class="actions" style="margin-top:12px"><button class="btn primary">生成令牌</button></div></form>`,
     { path: "/sources", subtitle: "设置" }));
 });
@@ -61,7 +64,7 @@ app.post("/sources", async (c) => {
   c.header("Cache-Control", "no-store");
   return c.html(page("令牌已生成", `<div class="card"><p><strong>只显示这一次，请现在复制到 Health Auto Export。</strong></p>
 <p>URL：<code>${esc(origin)}/ingest/hae</code></p><p>请求头：<code>Authorization: Bearer ${esc(token)}</code></p>
-<p class="muted">另外两个 Cloudflare Access 服务令牌请求头（CF-Access-Client-Id / CF-Access-Client-Secret）按 docs/SETUP.md 添加。</p>
+<p class="muted">更简单的方式：用 <a href="/connect">连接 Apple Health</a> 向导一键配置。</p>
 </div><p><a class="btn secondary" href="/sources">返回</a></p>`, { path: "/sources", subtitle: "设置" }));
 });
 

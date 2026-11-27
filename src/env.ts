@@ -12,6 +12,9 @@ export interface Env {
   CF_ACCESS_TEAM_DOMAIN?: string;
   CF_ACCESS_AUD?: string;
   COACHCHALK_WORKSPACE_ID?: string;
+  /** Optional Cloudflare Access service token for /ingest/*, only if that path is still behind Service Auth. */
+  HAE_ACCESS_CLIENT_ID?: string;
+  HAE_ACCESS_CLIENT_SECRET?: string;
 }
 
 export interface IngestMessage {

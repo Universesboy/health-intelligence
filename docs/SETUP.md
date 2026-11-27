@@ -56,38 +56,38 @@ npm run deploy
 Zero Trust → Access → Applications：
 
 1. **整站应用**：Self-hosted，域名 `health.你的域名`，路径留空。Policy：Allow → Emails → 你的邮箱。登录方式与 Coachchalk 相同（One-time PIN）。把 Application Audience (AUD) 填入 `CF_ACCESS_AUD`。
-2. **接收接口应用（优先级更高）**：Self-hosted，同一域名，路径 `/ingest/*`。Policy：**Service Auth** → 选择一个新建的服务令牌（Access → Service Auth → Create Service Token，名字如 `health-auto-export`）。记下它的 Client ID 和 Client Secret。
+2. **接收接口应用（优先级更高）**：Self-hosted，同一域名，路径 `/ingest/*`。Policy：**Bypass** → Include：Everyone。
 
-这样 `/ingest/*` 必须同时带 Access 服务令牌和本系统的数据源令牌，两者任一泄露都可以单独停用。
+   iPhone 上的 Health Auto Export 无法完成邮箱登录，所以 `/ingest/*` 不走 Access 登录，改由本系统检查每台设备独立的数据源令牌（256 位随机数，只存哈希，可在网页上单独停用）。没有有效令牌的请求返回 401，不会写入任何数据。
 
-## 6. 配置 Health Auto Export（iPhone）
+   如果你更想保留 Access 服务令牌（Policy 选 Service Auth），把它存成 Worker 密钥，一键链接会自动带上：
 
-先在网页 **数据源** 页点“生成令牌”，复制显示的 URL 和 Bearer 令牌（只显示一次）。
+   ```bash
+   npx wrangler secret put HAE_ACCESS_CLIENT_ID
+   npx wrangler secret put HAE_ACCESS_CLIENT_SECRET
+   ```
 
-在 Health Auto Export → Automations → 新建 → REST API（不同版本的选项名称可能略有差异）：
+## 6. 连接 iPhone（Health Auto Export）
 
-- URL：`https://health.你的域名/ingest/hae`
-- Headers：
-  - `Authorization: Bearer <数据源令牌>`
-  - `CF-Access-Client-Id: <服务令牌 Client ID>`
-  - `CF-Access-Client-Secret: <服务令牌 Client Secret>`
-- Export Format：JSON；Workout 格式选 Version 2
-- **Summarize Data：打开**（系统需要每日汇总的睡眠格式）
-- Time Grouping / Aggregation：**Hours**，之后不要再改（改变聚合粒度会让同一时段出现两种粒度的数据）
-- Date Range / Period：**Previous 7 Days**（每次重发最近 7 天，漏掉的自动补齐，后端去重）
-- Sync Interval：每 1–2 小时（iOS 只在手机解锁时允许读取健康数据，实际执行时间不保证）
-- 勾选指标：Step Count、Walking + Running Distance、Flights Climbed、Active Energy、Basal Energy Burned、Weight & Body Mass、Body Fat Percentage、Waist Circumference、Walking Speed、Walking Step Length、Walking Asymmetry、Walking Double Support、Dietary Water；有 Apple Watch 后加 Heart Rate、Resting Heart Rate、Heart Rate Variability、Sleep Analysis、VO2 Max；有血压计后加 Blood Pressure。勾选 Workouts。
-- 按 App 提示添加 Automations 桌面小组件（后台运行需要它）。
+在 iPhone 上打开 `https://health.你的域名/connect`（菜单「连接 Apple Health」），按页面的 5 步走：
 
-## 7. 导入历史
+1. 安装 Health Auto Export（自动同步需要 Premium，有 7 天试用），允许它读取健康数据。
+2. 点「生成一键配置链接」，再点「在 Health Auto Export 中创建自动同步」。App 会用官方 deep link（`com.HealthExport://automation?...`）新建一个填好的 REST API 自动化：地址、令牌、JSON v2、按小时汇总、汇总睡眠、Previous 7 Days、每小时同步、全部指标。点保存即可。训练记录是第二个可选链接。
+3. 在自动化里手动运行一次，网页会实时显示收到的第一批数据和各指标条数。
+4. 历史数据：在同一个自动化里 Export Existing Data → Manual Upload，按半年一段上传。
+5. 保持运行：打开后台 App 刷新、避免低电量模式、加小组件。超过 2 天没收到数据，“今天”页会提醒。
 
-Health Auto Export → Manual Export，格式 JSON，同样的 Summarize/Hours 设置，时间范围选过去 1–2 年（文件太大就按半年分几次），然后在网页 **导入历史** 页上传。
+生成新链接时，之前生成但从未收到数据的令牌会自动停用。链接含有令牌，不要分享截图。手动填写的值也在向导页的折叠区里。
+
+## 7. 导入历史（文件方式）
+
+也可以在 Health Auto Export → Manual Export 导出 JSON（Summarize 打开、Hours 汇总），然后在网页 **导入历史** 页上传。
 
 ## 8. 验收
 
 1. 无痕窗口打开 `https://health.你的域名/`，出现 Cloudflare Access 登录。
 2. 登录后能看到“今天”页和签到表单。
-3. 不带请求头 `curl -X POST https://health.你的域名/ingest/hae` 被 Access 拒绝。
+3. 不带令牌 `curl -X POST https://health.你的域名/ingest/hae` 返回 401。
 4. 在 Health Auto Export 里对该自动化点“Run now”（或等下一次同步），**数据质量** 页出现一条 processed 的数据包。
 5. 再运行一次，数据质量页的数值不变（无重复）。
 6. 上传历史文件后，步数、体重等天数与健康 App 大致一致。
